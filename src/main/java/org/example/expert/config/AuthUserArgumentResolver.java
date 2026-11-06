@@ -14,33 +14,39 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 
 public class AuthUserArgumentResolver implements HandlerMethodArgumentResolver {
 
+    // 1. 배달 대상 검증 메서드
     @Override
     public boolean supportsParameter(MethodParameter parameter) {
-        boolean hasAuthAnnotation = parameter.getParameterAnnotation(Auth.class) != null;
+        // 파라미터에 @Auth 어노테이션이 붙어있고, 타입이 AuthUser 클래스인지 검사합니다.
+        boolean hasAuthAnnotation = parameter.hasParameterAnnotation(Auth.class);
         boolean isAuthUserType = parameter.getParameterType().equals(AuthUser.class);
 
-        // @Auth 어노테이션과 AuthUser 타입이 함께 사용되지 않은 경우 예외 발생
-        if (hasAuthAnnotation != isAuthUserType) {
-            throw new AuthException("@Auth와 AuthUser 타입은 함께 사용되어야 합니다.");
-        }
-
-        return hasAuthAnnotation;
+        return hasAuthAnnotation && isAuthUserType;
     }
 
+    // 2. 실제 유저 객체를 가공해서 배달(주입)해주는 메서드
     @Override
     public Object resolveArgument(
-            @Nullable MethodParameter parameter,
+            MethodParameter parameter,
             @Nullable ModelAndViewContainer mavContainer,
             NativeWebRequest webRequest,
             @Nullable WebDataBinderFactory binderFactory
-    ) {
+    ) throws Exception {
+
+        // NativeWebRequest를 순수 HttpServletRequest로 캐스팅(변환)합니다.
         HttpServletRequest request = (HttpServletRequest) webRequest.getNativeRequest();
 
-        // JwtFilter 에서 set 한 userId, email, userRole 값을 가져옴
+        // Filter(필터) 단계에서 인증 후 request 속성에 담아둔 유저 데이터를 꺼냅니다.
         Long userId = (Long) request.getAttribute("userId");
         String email = (String) request.getAttribute("email");
-        UserRole userRole = UserRole.of((String) request.getAttribute("userRole"));
+        UserRole userRole = (UserRole) request.getAttribute("userRole");
 
+        // 만약 필터를 거치지 않았거나 유저 정보가 유실되었다면 인증 예외를 던집니다.
+        if (userId == null || email == null || userRole == null) {
+            throw new AuthException("인증 정보가 올바르지 않습니다.");
+        }
+
+        // 최종적으로 가공된 AuthUser 객체를 컨트롤러 파라미터에 쏙 넣어줍니다.
         return new AuthUser(userId, email, userRole);
     }
 }
